@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { NoteEditor } from '@/components/NoteEditor';
 import { PresenceList } from '@/components/PresenceList';
+import { DeleteNoteModal } from '@/components/DeleteNoteModal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
@@ -62,6 +63,9 @@ export default function NotePage() {
   // Save state (로컬 저장 상태 - Realtime 훅 사용 시 fallback)
   const [localIsSaving, setLocalIsSaving] = useState(false);
   const [localLastSaved, setLocalLastSaved] = useState<Date | null>(null);
+
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // Realtime note hook - noteId가 있을 때만 활성화
   const {
@@ -602,7 +606,32 @@ export default function NotePage() {
             />
 
             {/* Actions */}
-            <div className="mt-4">
+            <div className="mt-4 space-y-2">
+              {/* 삭제 버튼 - 호스트만 표시 */}
+              {userRole === 'host' && (
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="w-full text-red-500 hover:text-red-600 hover:bg-red-50"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                    />
+                  </svg>
+                  노트 삭제
+                </Button>
+              )}
+
               <Button
                 variant="ghost"
                 onClick={async () => {
@@ -627,6 +656,22 @@ export default function NotePage() {
           </div>
         </div>
       </div>
+
+      {/* 삭제 확인 모달 */}
+      {note && (
+        <DeleteNoteModal
+          noteCode={noteCode}
+          noteTitle={note.title}
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={() => {
+            // 삭제 성공 시 세션 정리 후 홈으로 이동
+            clearAuthData();
+            showToast('노트가 삭제되었습니다.', 'success');
+            router.push('/');
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -9,3 +9,4 @@ export { PresenceList } from './PresenceList';
 export { NoteCard } from './NoteCard';
 export { NoteList } from './NoteList';
 export { PasswordModal } from './PasswordModal';
+export { DeleteNoteModal } from './DeleteNoteModal';
