@@ -2,6 +2,13 @@ import { supabase } from './supabase';
 import type { Note, NoteUser, UserRole, PasswordVerifyResult, TiptapContent, PermissionStatus } from '@/types/note';
 
 /**
+ * 보안 패치 2026-02-10:
+ * - 비밀번호는 별도 테이블(note_passwords)에 저장
+ * - RLS로 클라이언트 직접 접근 차단
+ * - Postgres Function(SECURITY DEFINER)을 통해서만 비밀번호 검증
+ */
+
+/**
  * plain text를 Tiptap JSON 포맷으로 변환
  *
  * @param text - plain text 콘텐츠
@@ -60,7 +67,7 @@ export function generateNoteCode(): string {
 }
 
 /**
- * 새 노트 생성
+ * 새 노트 생성 (보안 패치: Postgres Function 사용, fallback 지원)
  *
  * @param title - 노트 제목
  * @param hostPassword - 호스트 비밀번호 (4자리)
@@ -78,27 +85,24 @@ export async function createNote(
   const maxAttempts = 5;
 
   while (attempts < maxAttempts) {
-    const { data, error } = await supabase
-      .from('notes')
-      .insert({
-        note_code: noteCode,
-        title,
-        content: '',
-        host_password: hostPassword,
-        guest_password: guestPassword,
-        is_locked: false,
-        locked_by: null,
-      })
-      .select()
-      .single();
+    // 보안 패치: Postgres Function을 통해 노트와 비밀번호 동시 생성 시도
+    const { data: rpcData, error: rpcError } = await supabase.rpc('create_note_with_password', {
+      p_title: title,
+      p_host_password: hostPassword,
+      p_guest_password: guestPassword,
+      p_note_code: noteCode,
+    });
 
-    if (!error && data) {
+    // RPC 함수가 존재하고 성공한 경우 (보안 패치 적용 후)
+    if (!rpcError && rpcData && rpcData.length > 0) {
+      const noteData = rpcData[0];
+
       // 호스트를 note_users에 추가
       const participantId = crypto.randomUUID();
       const { error: userError } = await supabase
         .from('note_users')
         .insert({
-          note_id: data.id,
+          note_id: noteData.id,
           user_id: participantId,
           username: '호스트',
           role: 'host',
@@ -107,35 +111,99 @@ export async function createNote(
 
       if (userError) {
         console.error('호스트 등록 실패:', userError);
-        // 노트는 생성됨, 호스트 등록 실패해도 진행
       }
 
-      return { ...(data as Note), participantId };
+      // Note 타입으로 변환 (비밀번호 없음)
+      const note: Note = {
+        id: noteData.id,
+        note_code: noteData.note_code,
+        title: noteData.title,
+        content: noteData.content || '',
+        content_json: noteData.content_json,
+        host_password: '', // 보안 패치: 클라이언트에 비밀번호 노출 안함
+        guest_password: '', // 보안 패치: 클라이언트에 비밀번호 노출 안함
+        is_locked: noteData.is_locked,
+        locked_by: noteData.locked_by,
+        created_at: noteData.created_at,
+        last_modified: noteData.last_modified,
+      };
+
+      return { ...note, participantId };
+    }
+
+    // RPC 함수가 없는 경우 (마이그레이션 전) - fallback to legacy method
+    // 보안 경고: 마이그레이션 적용 전까지 비밀번호가 notes 테이블에 저장됨
+    if (rpcError?.message?.includes('Could not find the function')) {
+      console.warn('[보안 경고] 마이그레이션 미적용 상태. 레거시 방식으로 노트 생성.');
+
+      const { data, error } = await supabase
+        .from('notes')
+        .insert({
+          note_code: noteCode,
+          title,
+          content: '',
+          host_password: hostPassword,
+          guest_password: guestPassword,
+          is_locked: false,
+          locked_by: null,
+        })
+        .select()
+        .single();
+
+      if (!error && data) {
+        // 호스트를 note_users에 추가
+        const participantId = crypto.randomUUID();
+        const { error: userError } = await supabase
+          .from('note_users')
+          .insert({
+            note_id: data.id,
+            user_id: participantId,
+            username: '호스트',
+            role: 'host',
+            can_edit: true,
+          });
+
+        if (userError) {
+          console.error('호스트 등록 실패:', userError);
+        }
+
+        return { ...(data as Note), participantId };
+      }
+
+      // 코드 중복 시 재생성
+      if (error?.code === '23505') {
+        noteCode = generateNoteCode();
+        attempts++;
+        continue;
+      }
+
+      throw new Error(`노트 생성 실패: ${error?.message}`);
     }
 
     // 코드 중복 시 재생성
-    if (error?.code === '23505') { // unique_violation
+    if (rpcError?.code === '23505') {
       noteCode = generateNoteCode();
       attempts++;
       continue;
     }
 
-    throw new Error(`노트 생성 실패: ${error?.message}`);
+    throw new Error(`노트 생성 실패: ${rpcError?.message}`);
   }
 
   throw new Error('노트 코드 생성 실패: 최대 시도 횟수 초과');
 }
 
 /**
- * 노트 코드로 노트 조회
+ * 노트 코드로 노트 조회 (보안 패치: 비밀번호 필드 제외)
  *
  * @param noteCode - 6자리 노트 코드
- * @returns 노트 객체 또는 null
+ * @returns 노트 객체 또는 null (비밀번호 필드는 빈 문자열)
  */
 export async function getNoteByCode(noteCode: string): Promise<Note | null> {
+  // 비밀번호를 제외한 컬럼만 선택 (마이그레이션 전후 모두 동작)
   const { data, error } = await supabase
     .from('notes')
-    .select('*')
+    .select('id, note_code, title, content, content_json, is_locked, locked_by, created_at, last_modified')
     .eq('note_code', noteCode.toUpperCase())
     .single();
 
@@ -146,14 +214,19 @@ export async function getNoteByCode(noteCode: string): Promise<Note | null> {
     throw new Error(`노트 조회 실패: ${error.message}`);
   }
 
-  return data as Note;
+  // Note 타입으로 변환 (비밀번호 필드는 빈 문자열)
+  return {
+    ...data,
+    host_password: '', // 클라이언트에 비밀번호 노출 안함
+    guest_password: '', // 클라이언트에 비밀번호 노출 안함
+  } as Note;
 }
 
 /**
- * 노트 ID로 노트 조회
+ * 노트 ID로 노트 조회 (보안 패치: 비밀번호 필드 제외)
  *
  * @param noteId - 노트 UUID
- * @returns 노트 객체 또는 null
+ * @returns 노트 객체 또는 null (비밀번호 필드는 빈 문자열)
  */
 export async function getNoteById(noteId: string): Promise<Note | null> {
   // noteId가 유효하지 않으면 null 반환 (빈 문자열 UUID 오류 방지)
@@ -161,9 +234,10 @@ export async function getNoteById(noteId: string): Promise<Note | null> {
     return null;
   }
 
+  // 비밀번호를 제외한 컬럼만 선택 (마이그레이션 전후 모두 동작)
   const { data, error } = await supabase
     .from('notes')
-    .select('*')
+    .select('id, note_code, title, content, content_json, is_locked, locked_by, created_at, last_modified')
     .eq('id', noteId)
     .single();
 
@@ -174,23 +248,81 @@ export async function getNoteById(noteId: string): Promise<Note | null> {
     throw new Error(`노트 조회 실패: ${error.message}`);
   }
 
-  return data as Note;
+  // Note 타입으로 변환 (비밀번호 필드는 빈 문자열)
+  return {
+    ...data,
+    host_password: '', // 클라이언트에 비밀번호 노출 안함
+    guest_password: '', // 클라이언트에 비밀번호 노출 안함
+  } as Note;
 }
 
 /**
- * 비밀번호 검증 및 역할 반환
+ * 비밀번호 검증 및 역할 반환 (보안 패치: Postgres Function 사용, fallback 지원)
  *
- * @param note - 노트 객체
+ * @param noteCode - 노트 코드
  * @param password - 입력된 비밀번호
- * @returns 검증 결과 및 역할
+ * @returns 검증 결과 및 역할, 노트 ID
+ */
+export async function verifyPasswordSecure(
+  noteCode: string,
+  password: string
+): Promise<PasswordVerifyResult & { noteId: string | null }> {
+  // 보안 패치: Postgres Function을 통해 비밀번호 검증 시도
+  const { data, error } = await supabase.rpc('verify_note_password', {
+    p_note_code: noteCode,
+    p_password: password,
+  });
+
+  // RPC 함수가 존재하고 성공한 경우 (보안 패치 적용 후)
+  if (!error && data && data.length > 0) {
+    const result = data[0];
+    return {
+      valid: result.valid,
+      role: result.role as UserRole | null,
+      noteId: result.note_id,
+    };
+  }
+
+  // RPC 함수가 없는 경우 (마이그레이션 전) - fallback to legacy method
+  if (error?.message?.includes('Could not find the function')) {
+    console.warn('[보안 경고] 마이그레이션 미적용 상태. 레거시 방식으로 비밀번호 검증.');
+
+    // 레거시: notes 테이블에서 직접 비밀번호 조회 (보안 취약)
+    const { data: noteData, error: noteError } = await supabase
+      .from('notes')
+      .select('id, host_password, guest_password')
+      .eq('note_code', noteCode.toUpperCase())
+      .single();
+
+    if (noteError || !noteData) {
+      return { valid: false, role: null, noteId: null };
+    }
+
+    if (password === noteData.host_password) {
+      return { valid: true, role: 'host', noteId: noteData.id };
+    }
+    if (password === noteData.guest_password) {
+      return { valid: true, role: 'guest', noteId: noteData.id };
+    }
+
+    return { valid: false, role: null, noteId: noteData.id };
+  }
+
+  if (error) {
+    console.error('비밀번호 검증 오류:', error);
+  }
+
+  return { valid: false, role: null, noteId: null };
+}
+
+/**
+ * @deprecated 보안 취약: 비밀번호가 클라이언트에 노출됨
+ * verifyPasswordSecure() 사용 권장
  */
 export function verifyPassword(note: Note, password: string): PasswordVerifyResult {
-  if (password === note.host_password) {
-    return { valid: true, role: 'host' };
-  }
-  if (password === note.guest_password) {
-    return { valid: true, role: 'guest' };
-  }
+  // 보안 패치 이후 notes 테이블에 비밀번호 없음
+  // 이 함수는 하위 호환성을 위해 유지하지만 항상 실패 반환
+  console.warn('verifyPassword is deprecated. Use verifyPasswordSecure() instead.');
   return { valid: false, role: null };
 }
 
@@ -840,33 +972,71 @@ export async function getNoteList(
 }
 
 /**
- * 노트 삭제 (호스트만 가능)
+ * 노트 삭제 (보안 패치: Postgres Function 사용, fallback 지원)
  *
- * @param noteId - 노트 UUID
+ * @param noteCode - 노트 코드
+ * @param password - 호스트 비밀번호
+ * @returns 삭제 성공 여부
+ */
+export async function deleteNoteSecure(noteCode: string, password: string): Promise<boolean> {
+  if (!noteCode) {
+    throw new Error('노트 삭제 실패: 유효하지 않은 노트 코드입니다.');
+  }
+
+  // 보안 패치: Postgres Function을 통해 비밀번호 검증 후 삭제 시도
+  const { data, error } = await supabase.rpc('delete_note_with_password', {
+    p_note_code: noteCode,
+    p_password: password,
+  });
+
+  // RPC 함수가 존재하고 성공한 경우 (보안 패치 적용 후)
+  if (!error) {
+    return data === true;
+  }
+
+  // RPC 함수가 없는 경우 (마이그레이션 전) - fallback to legacy method
+  if (error?.message?.includes('Could not find the function')) {
+    console.warn('[보안 경고] 마이그레이션 미적용 상태. 레거시 방식으로 노트 삭제.');
+
+    // 레거시: 비밀번호 직접 검증 후 삭제
+    const verifyResult = await verifyPasswordSecure(noteCode, password);
+
+    if (!verifyResult.valid || verifyResult.role !== 'host' || !verifyResult.noteId) {
+      return false;
+    }
+
+    // 참여자 기록 삭제
+    const { error: usersError } = await supabase
+      .from('note_users')
+      .delete()
+      .eq('note_id', verifyResult.noteId);
+
+    if (usersError) {
+      throw new Error(`참여자 기록 삭제 실패: ${usersError.message}`);
+    }
+
+    // 노트 삭제
+    const { error: noteError } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', verifyResult.noteId);
+
+    if (noteError) {
+      throw new Error(`노트 삭제 실패: ${noteError.message}`);
+    }
+
+    return true;
+  }
+
+  throw new Error(`노트 삭제 실패: ${error.message}`);
+}
+
+/**
+ * @deprecated 보안 취약: RLS가 DELETE 차단함
+ * deleteNoteSecure() 사용 권장
  */
 export async function deleteNote(noteId: string): Promise<void> {
-  // noteId가 유효하지 않으면 에러 발생 (빈 문자열 UUID 오류 방지)
-  if (!noteId || noteId === '') {
-    throw new Error('노트 삭제 실패: 유효하지 않은 노트 ID입니다.');
-  }
-
-  // 먼저 참여자 기록 삭제
-  const { error: usersError } = await supabase
-    .from('note_users')
-    .delete()
-    .eq('note_id', noteId);
-
-  if (usersError) {
-    throw new Error(`참여자 기록 삭제 실패: ${usersError.message}`);
-  }
-
-  // 노트 삭제
-  const { error: noteError } = await supabase
-    .from('notes')
-    .delete()
-    .eq('id', noteId);
-
-  if (noteError) {
-    throw new Error(`노트 삭제 실패: ${noteError.message}`);
-  }
+  // 보안 패치 이후 RLS가 직접 DELETE 차단
+  console.warn('deleteNote is deprecated. Use deleteNoteSecure() instead.');
+  throw new Error('노트 삭제 실패: 직접 삭제가 차단되었습니다. deleteNoteSecure()를 사용하세요.');
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNoteByCode, updateNoteContent, updateNoteContentJson, updateNoteTitle, textToTiptapJson, deleteNote } from '@/lib/note-service';
+import { getNoteByCode, updateNoteContent, updateNoteContentJson, updateNoteTitle, textToTiptapJson, deleteNoteSecure, verifyPasswordSecure } from '@/lib/note-service';
 import type { TiptapContent } from '@/types/note';
 
 // Rate Limiting: 메모리 기반 (5회 실패 시 10분 잠금)
@@ -125,6 +125,9 @@ export async function PATCH(
 /**
  * DELETE /api/notes/[code] - 노트 삭제 (호스트만 가능)
  *
+ * 보안 패치 2026-02-10:
+ * - Postgres Function을 통한 비밀번호 검증 및 삭제 (비밀번호 노출 방지)
+ *
  * Request body:
  * - password: 호스트 비밀번호 (4자리 숫자)
  *
@@ -163,18 +166,12 @@ export async function DELETE(
       );
     }
 
-    // 노트 조회
-    const note = await getNoteByCode(noteCode);
+    // 보안 패치: Postgres Function을 통한 비밀번호 검증 및 삭제
+    // 비밀번호가 클라이언트에 노출되지 않음
+    const deleted = await deleteNoteSecure(noteCode, password);
 
-    if (!note) {
-      return NextResponse.json(
-        { error: '노트를 찾을 수 없습니다.' },
-        { status: 404 }
-      );
-    }
-
-    // 호스트 비밀번호 검증
-    if (password !== note.host_password) {
+    if (!deleted) {
+      // 삭제 실패 (노트 없음 또는 비밀번호 틀림)
       // 실패 카운트 증가
       const currentLimit = rateLimitMap.get(rateLimitKey) || { failCount: 0, lockedUntil: 0 };
       currentLimit.failCount += 1;
@@ -200,9 +197,6 @@ export async function DELETE(
 
     // 비밀번호 검증 성공 - Rate Limit 초기화
     rateLimitMap.delete(rateLimitKey);
-
-    // 노트 삭제 (CASCADE로 note_users도 함께 삭제됨)
-    await deleteNote(note.id);
 
     return NextResponse.json(
       { message: '노트가 삭제되었습니다.' },

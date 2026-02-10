@@ -25,6 +25,11 @@ export interface TiptapMark {
 
 /**
  * 노트 엔티티
+ *
+ * 보안 패치 2026-02-10:
+ * - host_password, guest_password는 별도 테이블(note_passwords)에 저장됨
+ * - 클라이언트에서는 항상 빈 문자열로 반환됨
+ * - 비밀번호 검증은 Postgres Function을 통해서만 수행
  */
 export interface Note {
   id: string;
@@ -34,7 +39,9 @@ export interface Note {
   content: string;
   /** Tiptap 에디터 JSON 포맷 콘텐츠 */
   content_json: TiptapContent | null;
+  /** @deprecated 보안 패치 이후 항상 빈 문자열 */
   host_password: string;
+  /** @deprecated 보안 패치 이후 항상 빈 문자열 */
   guest_password: string;
   is_locked: boolean;
   locked_by: string | null;
