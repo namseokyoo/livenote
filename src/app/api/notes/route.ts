@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('노트 생성 오류:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : '노트 생성에 실패했습니다.' },
+      { error: '노트 생성에 실패했습니다.' },
       { status: 500 }
     );
   }

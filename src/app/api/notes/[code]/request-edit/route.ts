@@ -50,16 +50,10 @@ export async function POST(
     });
   } catch (error) {
     console.error('편집 권한 요청 오류:', error);
-
-    // 쿨다운 에러 메시지에서 남은 시간 추출
-    const errorMessage = error instanceof Error ? error.message : '편집 권한 요청에 실패했습니다.';
-    const cooldownMatch = errorMessage.match(/(\d+)초 후/);
-
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
-        cooldownSeconds: cooldownMatch ? parseInt(cooldownMatch[1]) : undefined,
+        error: '편집 권한 요청에 실패했습니다.',
       },
       { status: 400 }
     );

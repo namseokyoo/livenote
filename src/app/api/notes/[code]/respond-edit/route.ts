@@ -55,13 +55,10 @@ export async function POST(
     });
   } catch (error) {
     console.error('편집 권한 응답 오류:', error);
-
-    const errorMessage = error instanceof Error ? error.message : '편집 권한 응답에 실패했습니다.';
-
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
+        error: '편집 권한 응답에 실패했습니다.',
       },
       { status: 400 }
     );
