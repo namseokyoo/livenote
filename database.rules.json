@@ -1,0 +1,46 @@
+{
+  "rules": {
+    "notes": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["lastModified", "createdAt", "noteCode", "title"]
+    },
+    "noteCodes": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "noteSecrets": {
+      ".read": false,
+      ".write": false
+    },
+    "participants": {
+      "$noteId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        ".indexOn": ["joinedAt", "role"]
+      }
+    },
+    "permissions": {
+      "$noteId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "presence": {
+      "$noteId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "hostStatus": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "awareness": {
+      "$noteId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
