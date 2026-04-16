@@ -26,10 +26,9 @@ export interface TiptapMark {
 /**
  * 노트 엔티티
  *
- * 보안 패치 2026-02-10:
- * - host_password, guest_password는 별도 테이블(note_passwords)에 저장됨
+ * 비밀번호는 RTDB의 noteSecrets 경로에 분리 저장된다.
  * - 클라이언트에서는 항상 빈 문자열로 반환됨
- * - 비밀번호 검증은 Postgres Function을 통해서만 수행
+ * - 비밀번호 검증은 서버 API를 통해서만 수행
  */
 export interface Note {
   id: string;
@@ -69,7 +68,7 @@ export interface NoteUser {
   /** 편집 권한 요청 상태 */
   permission_status?: PermissionStatus;
   /** 권한 요청 시간 */
-  permission_requested_at?: string;
+  permission_requested_at?: string | null;
 }
 
 /**

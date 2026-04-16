@@ -74,7 +74,7 @@ export function CreateNoteForm({ onCancel }: CreateNoteFormProps) {
       sessionStorage.setItem(`note-${data.code}-auth`, 'true');
       sessionStorage.setItem(`note-${data.code}-nickname`, '호스트');
       sessionStorage.setItem(`note-${data.code}-timestamp`, Date.now().toString());
-      sessionStorage.setItem(`note-${data.code}-userId`, data.participantId);
+      sessionStorage.setItem(`note-${data.code}-userId`, data.userId || data.participantId);
 
       router.replace(`/note/${data.code}`);
     } catch (err) {

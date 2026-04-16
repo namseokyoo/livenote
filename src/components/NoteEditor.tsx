@@ -21,24 +21,30 @@ interface NoteEditorProps {
   lastSaved?: Date | null;
   isSaving?: boolean;
   isConnected?: boolean;
+  noteId?: string;
 }
 
 export function NoteEditor({
   noteCode,
   title,
-  content,
+  content: _content,
   contentJson,
   isHost,
   canEdit: guestCanEdit = false,
-  onContentChange,
+  onContentChange: _onContentChange,
   onContentJsonChange,
   onTitleChange,
   lastSaved,
   isSaving = false,
   isConnected = true,
+  noteId,
 }: NoteEditorProps) {
+  void _content;
+  void _onContentChange;
+
   // 편집 가능 여부: 호스트이거나, 게스트에게 편집 권한이 부여된 경우
   const canEdit = isHost || guestCanEdit;
+  const editorKey = noteId ? `note-${noteId}` : 'editor';
   const [localTitle, setLocalTitle] = useState(title);
   // Tiptap 에디터용 JSON 콘텐츠 상태
   const [localContentJson, setLocalContentJson] = useState<string>(
@@ -52,9 +58,7 @@ export function NoteEditor({
 
   // Sync with external content_json changes (from Realtime)
   useEffect(() => {
-    if (contentJson) {
-      setLocalContentJson(JSON.stringify(contentJson));
-    }
+    setLocalContentJson(contentJson ? JSON.stringify(contentJson) : '');
   }, [contentJson]);
 
   // Tiptap 에디터 콘텐츠 변경 핸들러
@@ -186,6 +190,7 @@ export function NoteEditor({
       {/* Tiptap WYSIWYG Editor */}
       <div className="flex-1 pt-4">
         <TiptapEditor
+          key={editorKey}
           content={localContentJson}
           onContentChange={handleTiptapContentChange}
           disabled={!canEdit}

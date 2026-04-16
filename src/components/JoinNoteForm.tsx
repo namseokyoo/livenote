@@ -63,6 +63,8 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
       sessionStorage.setItem(`note-${noteCode}-role`, data.role);
       sessionStorage.setItem(`note-${noteCode}-auth`, 'true');
       sessionStorage.setItem(`note-${noteCode}-nickname`, nickname.trim());
+      sessionStorage.setItem(`note-${noteCode}-timestamp`, Date.now().toString());
+      sessionStorage.setItem(`note-${noteCode}-userId`, data.userId);
 
       router.push(`/note/${noteCode}`);
     } catch (err) {

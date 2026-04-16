@@ -151,7 +151,7 @@ export function SearchBar({ onSearch, isSearching = false }: SearchBarProps) {
               value={query}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="제목 또는 내용 검색..."
+              placeholder="노트 제목 또는 코드로 검색"
               className="flex-1 bg-transparent outline-none text-sm text-gray-900 placeholder-gray-400"
             />
 

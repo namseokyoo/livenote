@@ -1,22 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNoteByCode, respondToEditRequest } from '@/lib/note-service';
+import { getErrorStatus, respondToEditPermission } from '@/lib/note-service-firebase';
 
 interface RouteParams {
   params: Promise<{ code: string }>;
 }
 
-/**
- * POST /api/notes/[code]/respond-edit - 편집 권한 요청 응답 (호스트 전용)
- *
- * Request body:
- * - hostUserId: 호스트 UUID (검증용)
- * - targetUserId: 대상 사용자 UUID
- * - approved: boolean (승인 여부)
- *
- * Response:
- * - success: boolean
- * - message: string
- */
 export async function POST(
   request: NextRequest,
   { params }: RouteParams
@@ -34,33 +22,20 @@ export async function POST(
       );
     }
 
-    const note = await getNoteByCode(noteCode);
-
-    if (!note) {
-      return NextResponse.json(
-        { success: false, error: '노트를 찾을 수 없습니다.' },
-        { status: 404 }
-      );
-    }
-
-    await respondToEditRequest(note.id, targetUserId, approved, hostUserId);
-
-    const message = approved
-      ? '편집 권한을 승인했습니다.'
-      : '편집 권한 요청을 거부했습니다.';
+    await respondToEditPermission(noteCode, hostUserId, targetUserId, Boolean(approved));
 
     return NextResponse.json({
       success: true,
-      message,
+      message: approved ? '편집 권한을 승인했습니다.' : '편집 권한 요청을 거부했습니다.',
     });
   } catch (error) {
     console.error('편집 권한 응답 오류:', error);
     return NextResponse.json(
       {
         success: false,
-        error: '편집 권한 응답에 실패했습니다.',
+        error: error instanceof Error ? error.message : '편집 권한 응답에 실패했습니다.',
       },
-      { status: 400 }
+      { status: getErrorStatus(error, 400) }
     );
   }
 }

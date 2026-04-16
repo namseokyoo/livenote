@@ -17,6 +17,8 @@ interface PresenceListProps {
   currentUserId?: string;
   /** 현재 사용자가 호스트인지 여부 */
   isHost?: boolean;
+  /** RTDB 기준 호스트 온라인 상태 */
+  isHostOnline?: boolean;
   /** 편집 권한 토글 핸들러 (호스트 전용) */
   onToggleEditPermission?: (userId: string) => void;
   /** 토글 로딩 상태 */
@@ -37,6 +39,7 @@ export function PresenceList({
   participants,
   currentUserId,
   isHost = false,
+  isHostOnline = true,
   onToggleEditPermission,
   isTogglingPermission = false,
   onRequestEditPermission,
@@ -70,12 +73,16 @@ export function PresenceList({
         return (
           <button
             onClick={onRequestEditPermission}
-            disabled={isTogglingPermission || cooldownSeconds > 0}
+            disabled={isTogglingPermission || cooldownSeconds > 0 || !isHostOnline}
             className="w-full px-3 py-2 mt-3 bg-blue-500 text-white text-sm font-medium rounded-lg
               hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed
               transition-colors"
           >
-            {cooldownSeconds > 0 ? `${cooldownSeconds}초 후 재요청 가능` : '편집 권한 요청'}
+            {!isHostOnline
+              ? '호스트 오프라인'
+              : cooldownSeconds > 0
+                ? `${cooldownSeconds}초 후 재요청 가능`
+                : '편집 권한 요청'}
           </button>
         );
       case 'requested':
@@ -97,12 +104,12 @@ export function PresenceList({
             ) : (
               <button
                 onClick={onRequestEditPermission}
-                disabled={isTogglingPermission}
+                disabled={isTogglingPermission || !isHostOnline}
                 className="w-full px-3 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg
                   hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed
                   transition-colors"
               >
-                다시 요청
+                {isHostOnline ? '다시 요청' : '호스트 오프라인'}
               </button>
             )}
           </div>
@@ -132,6 +139,19 @@ export function PresenceList({
           {onlineCount}명 접속 중
         </span>
       </div>
+
+      {!isHost && (
+        <div
+          className={`mb-4 flex items-center justify-between rounded-lg px-3 py-2 text-xs ${
+            isHostOnline
+              ? 'bg-green-50 text-green-700'
+              : 'bg-amber-50 text-amber-700'
+          }`}
+        >
+          <span>호스트 상태</span>
+          <span className="font-medium">{isHostOnline ? '온라인' : '오프라인'}</span>
+        </div>
+      )}
 
       {/* Participants list */}
       <ul className="space-y-2">
@@ -253,6 +273,12 @@ export function PresenceList({
 
       {/* 게스트: 권한 요청 버튼 영역 */}
       {renderGuestPermissionButton()}
+
+      {!isHost && !isHostOnline && (
+        <p className="mt-2 text-xs text-gray-500 text-center">
+          호스트가 돌아오면 편집 권한을 요청할 수 있습니다.
+        </p>
+      )}
     </div>
   );
 }

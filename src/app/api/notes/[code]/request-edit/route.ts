@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNoteByCode, requestEditPermission } from '@/lib/note-service';
+import {
+  getErrorCooldown,
+  getErrorStatus,
+  requestEditPermissionForUser,
+} from '@/lib/note-service-firebase';
 
 interface RouteParams {
   params: Promise<{ code: string }>;
 }
 
-/**
- * POST /api/notes/[code]/request-edit - 편집 권한 요청 (게스트 전용)
- *
- * Request body:
- * - userId: 요청자 UUID
- *
- * Response:
- * - success: boolean
- * - message: string
- * - cooldownSeconds?: number (쿨다운 중인 경우)
- */
 export async function POST(
   request: NextRequest,
   { params }: RouteParams
@@ -33,16 +26,7 @@ export async function POST(
       );
     }
 
-    const note = await getNoteByCode(noteCode);
-
-    if (!note) {
-      return NextResponse.json(
-        { success: false, error: '노트를 찾을 수 없습니다.' },
-        { status: 404 }
-      );
-    }
-
-    await requestEditPermission(note.id, userId);
+    await requestEditPermissionForUser(noteCode, userId);
 
     return NextResponse.json({
       success: true,
@@ -53,9 +37,10 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        error: '편집 권한 요청에 실패했습니다.',
+        error: error instanceof Error ? error.message : '편집 권한 요청에 실패했습니다.',
+        cooldownSeconds: getErrorCooldown(error),
       },
-      { status: 400 }
+      { status: getErrorStatus(error, 400) }
     );
   }
 }
