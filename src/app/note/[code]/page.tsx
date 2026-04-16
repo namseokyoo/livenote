@@ -9,8 +9,8 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { useEditPermission } from '@/hooks/useEditPermission';
+import { usePresence } from '@/hooks/usePresence';
 import { useRealtimeNote } from '@/hooks/useRealtimeNote';
-import { leaveNote } from '@/lib/note-service';
 
 import type { TiptapContent } from '@/types/note';
 
@@ -23,13 +23,6 @@ interface Note {
   title: string;
   content: string;
   content_json?: TiptapContent | null;
-}
-
-interface Participant {
-  id: string;
-  nickname: string;
-  role: 'host' | 'guest';
-  isOnline: boolean;
 }
 
 export default function NotePage() {
@@ -57,8 +50,6 @@ export default function NotePage() {
   const [userRole, setUserRole] = useState<'host' | 'guest' | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Presence state
-  const [participants] = useState<Participant[]>([]);
 
   // Save state (로컬 저장 상태 - Realtime 훅 사용 시 fallback)
   const [localIsSaving, setLocalIsSaving] = useState(false);
@@ -118,6 +109,15 @@ export default function NotePage() {
       // 호스트에게 권한 요청 알림
       showToast(`${user.username}님이 편집 권한을 요청했습니다.`, 'info');
     },
+  });
+
+  const displayName = nickname.trim() || (userRole === 'host' ? '호스트' : '게스트');
+
+  const { users: presenceUsers, isHostOnline } = usePresence({
+    noteId: note?.id || '',
+    userId: userId || '',
+    username: displayName,
+    role: userRole === 'host' ? 'host' : 'guest',
   });
 
   // 인증 정보 삭제 헬퍼 함수
@@ -310,17 +310,17 @@ export default function NotePage() {
   const handleContentJsonChange = useCallback(
     async (newContentJson: TiptapContent) => {
       const canEditContent = userRole === 'host' || guestCanEdit;
-      if (!note || !canEditContent) return;
+      if (!canEditContent) return;
 
       // 로컬 상태 업데이트
-      setNote((prev) => (prev ? { ...prev, content_json: newContentJson } : null));
+      setNote((prev) => {
+        if (!prev) return null;
+        return { ...prev, content_json: newContentJson };
+      });
 
-      // Realtime 훅의 setContentJson 호출 (디바운스 저장 + 실시간 브로드캐스트)
-      if (note.id) {
-        setRealtimeContentJson(newContentJson);
-      }
+      setRealtimeContentJson(newContentJson);
     },
-    [note, userRole, guestCanEdit, setRealtimeContentJson]
+    [guestCanEdit, setRealtimeContentJson, userRole]
   );
 
   // Handle content change (plain text - 하위 호환용)
@@ -338,7 +338,7 @@ export default function NotePage() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ content: newContent }),
+          body: JSON.stringify({ content: newContent, userId }),
         });
         setLocalLastSaved(new Date());
       } catch {
@@ -347,7 +347,7 @@ export default function NotePage() {
         setLocalIsSaving(false);
       }
     },
-    [note, noteCode, userRole, guestCanEdit]
+    [guestCanEdit, note, noteCode, userId, userRole]
   );
 
   // Handle title change
@@ -364,7 +364,7 @@ export default function NotePage() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ title: newTitle }),
+          body: JSON.stringify({ title: newTitle, userId }),
         });
         setLocalLastSaved(new Date());
       } catch {
@@ -373,7 +373,7 @@ export default function NotePage() {
         setLocalIsSaving(false);
       }
     },
-    [note, noteCode, userRole]
+    [note, noteCode, userId, userRole]
   );
 
   // Handle toggle edit permission (호스트 전용)
@@ -401,6 +401,11 @@ export default function NotePage() {
 
   // 편집 권한 요청 핸들러 (게스트 전용)
   const handleRequestEditPermission = useCallback(async () => {
+    if (!isHostOnline) {
+      showToast('호스트가 오프라인 상태입니다. 온라인 후 다시 요청해주세요.', 'info');
+      return;
+    }
+
     try {
       await requestEditPermission();
       showToast('편집 권한을 요청했습니다.', 'success');
@@ -410,7 +415,7 @@ export default function NotePage() {
         'error'
       );
     }
-  }, [requestEditPermission, showToast]);
+  }, [isHostOnline, requestEditPermission, showToast]);
 
   // 권한 요청 응답 핸들러 (호스트 전용)
   const handleRespondToRequest = useCallback(
@@ -437,14 +442,21 @@ export default function NotePage() {
   );
 
   // noteUsers를 participants 형식으로 변환
-  const participantsFromUsers = noteUsers.map((user) => ({
-    id: user.user_id,
-    nickname: user.username,
-    role: user.role,
-    isOnline: true, // TODO: Presence 통합 시 실제 온라인 상태로 변경
-    canEdit: user.can_edit,
-    permissionStatus: user.permission_status,
-  }));
+  const participantsFromUsers = noteUsers.length > 0
+    ? noteUsers.map((user) => ({
+        id: user.user_id,
+        nickname: user.username,
+        role: user.role,
+        isOnline: presenceUsers.some((presenceUser) => presenceUser.id === user.user_id),
+        canEdit: user.can_edit,
+        permissionStatus: user.permission_status,
+      }))
+    : presenceUsers.map((user) => ({
+        id: user.id,
+        nickname: user.username,
+        role: user.role,
+        isOnline: true,
+      }));
 
   // Auth modal
   if (showAuthModal) {
@@ -586,6 +598,7 @@ export default function NotePage() {
                 lastSaved={lastSaved}
                 isSaving={isSaving}
                 isConnected={isRealtimeConnected}
+                noteId={note.id}
               />
             )}
           </div>
@@ -593,9 +606,10 @@ export default function NotePage() {
           {/* Sidebar */}
           <div className="w-full lg:w-72 flex-shrink-0">
             <PresenceList
-              participants={participantsFromUsers.length > 0 ? participantsFromUsers : participants}
+              participants={participantsFromUsers}
               currentUserId={userId || undefined}
               isHost={userRole === 'host'}
+              isHostOnline={isHostOnline}
               onToggleEditPermission={handleToggleEditPermission}
               isTogglingPermission={isPermissionLoading}
               onRequestEditPermission={handleRequestEditPermission}
@@ -637,13 +651,17 @@ export default function NotePage() {
                 onClick={async () => {
                   // 퇴장 시 인증 정보 삭제 (뒤로가기 방지)
                   clearAuthData();
-                  // DB에서 사용자 삭제
-                  if (note?.id && userId) {
+                  if (userId) {
                     try {
-                      await leaveNote(note.id, userId);
+                      await fetch(`/api/notes/${noteCode}/leave`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ userId }),
+                      });
                     } catch (e) {
-                      // 실패해도 홈으로 이동
-                      console.error('leaveNote failed:', e);
+                      console.error('leave route failed:', e);
                     }
                   }
                   router.push('/');

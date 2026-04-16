@@ -1,87 +1,71 @@
 'use client';
 
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import { useCallback, useEffect } from 'react';
+import { EditorContent, useEditor } from '@tiptap/react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { createBaseTiptapExtensions } from '@/lib/tiptap';
 
 interface TiptapEditorProps {
-  /** 초기 콘텐츠 (JSON 또는 HTML 문자열) */
   content?: string;
-  /** 콘텐츠 변경 시 콜백 (JSON 문자열 반환) */
   onContentChange?: (jsonContent: string) => void;
-  /** 에디터 비활성화 여부 */
   disabled?: boolean;
-  /** 플레이스홀더 텍스트 */
   placeholder?: string;
 }
 
-/**
- * Tiptap WYSIWYG Editor PoC Component
- *
- * Phase 2-2: React 19 호환성 검증용
- * - 기본 포맷팅: Bold, Italic, Strike, Heading
- * - JSON 포맷 저장/로드
- * - Supabase Realtime 연동 준비
- */
 export function TiptapEditor({
   content,
   onContentChange,
   disabled = false,
-  // placeholder는 향후 @tiptap/extension-placeholder 추가 시 사용 예정
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  placeholder: _placeholder = '내용을 입력하세요...',
+  placeholder = '내용을 입력하세요...',
 }: TiptapEditorProps) {
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        // 필요한 확장만 활성화
-        heading: {
-          levels: [1, 2, 3],
+  void placeholder;
+
+  const extensions = useMemo(() => createBaseTiptapExtensions(), []);
+  const onContentChangeRef = useRef(onContentChange);
+
+  useEffect(() => {
+    onContentChangeRef.current = onContentChange;
+  }, [onContentChange]);
+
+  const editor = useEditor(
+    {
+      extensions,
+      content: content ? parseContent(content) : '',
+      editable: !disabled,
+      immediatelyRender: false,
+      onUpdate: ({ editor: nextEditor }) => {
+        onContentChangeRef.current?.(JSON.stringify(nextEditor.getJSON()));
+      },
+      editorProps: {
+        attributes: {
+          class: 'prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[200px] px-4 py-3',
         },
-        // 코드 블록은 나중에 필요시 추가
-        codeBlock: false,
-      }),
-    ],
-    content: content ? parseContent(content) : '',
-    editable: !disabled,
-    // SSR 경고 해결: 서버에서 즉시 렌더링하지 않음
-    immediatelyRender: false,
-    onUpdate: ({ editor }) => {
-      // JSON 형식으로 콘텐츠 추출
-      const json = JSON.stringify(editor.getJSON());
-      onContentChange?.(json);
-    },
-    editorProps: {
-      attributes: {
-        class: 'prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[200px] px-4 py-3',
       },
     },
-  });
+    [extensions]
+  );
 
-  // 외부 콘텐츠 변경 시 에디터 동기화
   useEffect(() => {
-    if (editor && content) {
-      const parsedContent = parseContent(content);
-      const currentContent = JSON.stringify(editor.getJSON());
-      const newContent = typeof parsedContent === 'string'
-        ? parsedContent
-        : JSON.stringify(parsedContent);
-
-      // 콘텐츠가 다를 때만 업데이트 (무한 루프 방지)
-      if (currentContent !== newContent) {
-        editor.commands.setContent(parsedContent);
-      }
+    if (!editor) {
+      return;
     }
-  }, [editor, content]);
 
-  // disabled 상태 변경 시 에디터 상태 업데이트
+    const parsedContent = content ? parseContent(content) : '';
+    const currentContent = JSON.stringify(editor.getJSON());
+    const nextContent = typeof parsedContent === 'string'
+      ? parsedContent
+      : JSON.stringify(parsedContent);
+
+    if (currentContent !== nextContent) {
+      editor.commands.setContent(parsedContent);
+    }
+  }, [content, editor]);
+
   useEffect(() => {
     if (editor) {
       editor.setEditable(!disabled);
     }
   }, [editor, disabled]);
 
-  // 포맷팅 버튼 핸들러
   const toggleBold = useCallback(() => {
     editor?.chain().focus().toggleBold().run();
   }, [editor]);
@@ -116,10 +100,8 @@ export function TiptapEditor({
 
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden">
-      {/* Toolbar */}
       {!disabled && (
         <div className="flex flex-wrap items-center gap-1 p-2 border-b border-gray-200 bg-gray-50">
-          {/* Text Formatting */}
           <div className="flex items-center gap-1">
             <ToolbarButton
               onClick={toggleBold}
@@ -146,7 +128,6 @@ export function TiptapEditor({
 
           <div className="w-px h-6 bg-gray-300 mx-1" />
 
-          {/* Headings */}
           <div className="flex items-center gap-1">
             <ToolbarButton
               onClick={() => toggleHeading(1)}
@@ -173,7 +154,6 @@ export function TiptapEditor({
 
           <div className="w-px h-6 bg-gray-300 mx-1" />
 
-          {/* Lists */}
           <div className="flex items-center gap-1">
             <ToolbarButton
               onClick={toggleBulletList}
@@ -193,25 +173,19 @@ export function TiptapEditor({
         </div>
       )}
 
-      {/* Editor Content */}
       <EditorContent editor={editor} />
     </div>
   );
 }
 
-// 콘텐츠 파싱 헬퍼 함수
 function parseContent(content: string): string | object {
   try {
-    // JSON 문자열인지 확인
-    const parsed = JSON.parse(content);
-    return parsed;
+    return JSON.parse(content);
   } catch {
-    // JSON이 아니면 HTML 문자열로 처리
     return content;
   }
 }
 
-// Toolbar Button 컴포넌트
 interface ToolbarButtonProps {
   onClick: () => void;
   isActive?: boolean;
@@ -238,7 +212,6 @@ function ToolbarButton({ onClick, isActive, title, children }: ToolbarButtonProp
   );
 }
 
-// Icon 컴포넌트들
 function BoldIcon() {
   return (
     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -279,12 +252,10 @@ function OrderedListIcon() {
   );
 }
 
-// 유틸리티 함수: 에디터에서 HTML 추출
 export function getEditorHTML(editor: ReturnType<typeof useEditor>): string {
   return editor?.getHTML() || '';
 }
 
-// 유틸리티 함수: 에디터에서 JSON 추출
 export function getEditorJSON(editor: ReturnType<typeof useEditor>): object | null {
   return editor?.getJSON() || null;
 }
