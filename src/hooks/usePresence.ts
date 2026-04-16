@@ -1,185 +1,161 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { onDisconnect, onValue, ref, remove, serverTimestamp, set } from 'firebase/database';
+import { getRtdb, signInAnonymouslyIfNeeded } from '@/lib/firebase';
 import type { UserRole } from '@/types/note';
 
-/**
- * Presence 사용자 정보
- */
 export interface PresenceUser {
-  /** 사용자 UUID */
   id: string;
-  /** 사용자 이름 */
   username: string;
-  /** 사용자 역할 */
   role: UserRole;
-  /** 접속 시간 */
   online_at: string;
-  /** 게스트 편집 권한 */
   can_edit?: boolean;
 }
 
-/**
- * Presence 훅 옵션
- */
 export interface UsePresenceOptions {
-  /** 노트 UUID */
   noteId: string;
-  /** 사용자 UUID */
   userId: string;
-  /** 사용자 이름 */
   username: string;
-  /** 사용자 역할 */
   role: UserRole;
 }
 
-/**
- * Presence 훅 반환값
- */
 export interface UsePresenceReturn {
-  /** 현재 접속자 목록 */
   users: PresenceUser[];
-  /** Presence 연결 상태 */
   isConnected: boolean;
-  /** 연결 에러 */
   error: Error | null;
+  isHostOnline: boolean;
 }
 
-/** 재연결 시도 최대 횟수 */
-const MAX_RECONNECT_ATTEMPTS = 3;
+function toIso(value: unknown): string {
+  if (typeof value === 'number') {
+    return new Date(value).toISOString();
+  }
 
-/**
- * 노트 접속자 현황 실시간 관리 훅
- *
- * Supabase Presence 채널을 활용하여:
- * - 접속/퇴장 실시간 감지
- * - 현재 접속자 목록 관리
- * - 컴포넌트 언마운트 시 자동 퇴장
- *
- * @param options - 훅 옵션
- * @returns 접속자 목록 및 연결 상태
- */
-export function usePresence({
-  noteId,
-  userId,
-  username,
-  role,
-}: UsePresenceOptions): UsePresenceReturn {
-  // 상태
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return new Date().toISOString();
+}
+
+export function usePresence({ noteId, userId, username, role }: UsePresenceOptions): UsePresenceReturn {
   const [users, setUsers] = useState<PresenceUser[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [isHostOnline, setIsHostOnline] = useState(role === 'host');
 
-  // Refs
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const reconnectAttemptsRef = useRef(0);
+  const safeUsername = useMemo(() => username || (role === 'host' ? '호스트' : '게스트'), [role, username]);
 
-  /**
-   * Presence 상태에서 사용자 목록 추출
-   */
-  const extractUsers = useCallback((presenceState: Record<string, unknown[]>): PresenceUser[] => {
-    const userList: PresenceUser[] = [];
-
-    Object.values(presenceState).forEach((presences) => {
-      presences.forEach((presence) => {
-        const user = presence as PresenceUser;
-        if (user.id) {
-          userList.push(user);
-        }
-      });
-    });
-
-    // 접속 시간 순 정렬
-    return userList.sort(
-      (a, b) => new Date(a.online_at).getTime() - new Date(b.online_at).getTime()
-    );
-  }, []);
-
-  /**
-   * Presence 채널 구독
-   */
-  const subscribeToPresence = useCallback(() => {
-    // 기존 채널 정리
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
+  useEffect(() => {
+    if (!noteId || !userId) {
+      return;
     }
 
-    const channel = supabase.channel(`presence-${noteId}`, {
-      config: {
-        presence: {
-          key: userId,
-        },
-      },
-    });
+    let unsubscribePresence: () => void = () => {};
+    let unsubscribeHostStatus: () => void = () => {};
+    let disposed = false;
+    const rtdb = getRtdb();
+    const presenceRef = ref(rtdb, `presence/${noteId}/${userId}`);
+    const roomPresenceRef = ref(rtdb, `presence/${noteId}`);
+    const hostStatusRef = ref(rtdb, `hostStatus/${noteId}`);
 
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        const userList = extractUsers(state);
-        setUsers(userList);
-      })
-      .on('presence', { event: 'join' }, ({ newPresences }) => {
-        console.log('[usePresence] 사용자 접속:', newPresences);
-      })
-      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-        console.log('[usePresence] 사용자 퇴장:', leftPresences);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          // 자신의 Presence 상태 전송
-          const trackResult = await channel.track({
-            id: userId,
-            username,
-            role,
-            online_at: new Date().toISOString(),
+    const connect = async () => {
+      try {
+        await signInAnonymouslyIfNeeded();
+        if (disposed) {
+          return;
+        }
+
+        await set(presenceRef, {
+          username: safeUsername,
+          role,
+          connectedAt: serverTimestamp(),
+          lastSeenAt: serverTimestamp(),
+        });
+        await onDisconnect(presenceRef).remove();
+
+        if (role === 'host') {
+          await set(hostStatusRef, {
+            online: true,
+            lastSeen: serverTimestamp(),
           });
+          await onDisconnect(hostStatusRef).set({
+            online: false,
+            lastSeen: serverTimestamp(),
+          });
+          setIsHostOnline(true);
+        }
 
-          if (trackResult === 'ok') {
+        unsubscribePresence = onValue(
+          roomPresenceRef,
+          (snapshot) => {
             setIsConnected(true);
             setError(null);
-            reconnectAttemptsRef.current = 0;
-            console.log('[usePresence] Presence 연결됨');
-          } else {
-            console.error('[usePresence] Presence 트래킹 실패:', trackResult);
+
+            const value = snapshot.val() as Record<string, { username?: string; role?: UserRole; connectedAt?: number }> | null;
+            const nextUsers: PresenceUser[] = value
+              ? Object.entries(value).map(([id, entry]) => ({
+                  id,
+                  username: entry.username || (entry.role === 'host' ? '호스트' : '게스트'),
+                  role: (entry.role === 'host' ? 'host' : 'guest') as UserRole,
+                  online_at: toIso(entry.connectedAt),
+                }))
+              : [];
+
+            nextUsers.sort((left, right) =>
+              new Date(left.online_at).getTime() - new Date(right.online_at).getTime()
+            );
+            setUsers(nextUsers);
+          },
+          (databaseError) => {
+            setIsConnected(false);
+            setError(databaseError instanceof Error ? databaseError : new Error('Presence 연결 실패'));
           }
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          setIsConnected(false);
-          setError(new Error(`Presence 연결 실패: ${status}`));
-          console.error('[usePresence] Presence 연결 실패:', status);
+        );
 
-          // 재연결 시도
-          if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttemptsRef.current++;
-            setTimeout(subscribeToPresence, 1000 * reconnectAttemptsRef.current);
+        unsubscribeHostStatus = onValue(
+          hostStatusRef,
+          (snapshot) => {
+            if (role === 'host') {
+              setIsHostOnline(true);
+              return;
+            }
+
+            const status = snapshot.val() as { online?: boolean } | null;
+            setIsHostOnline(Boolean(status?.online));
+          },
+          () => {
+            if (role !== 'host') {
+              setIsHostOnline(false);
+            }
           }
-        } else if (status === 'CLOSED') {
-          setIsConnected(false);
-          console.log('[usePresence] Presence 연결 종료');
-        }
-      });
-
-    channelRef.current = channel;
-  }, [noteId, userId, username, role, extractUsers]);
-
-  /**
-   * Presence 채널 구독 및 정리
-   */
-  useEffect(() => {
-    subscribeToPresence();
-
-    return () => {
-      // 채널 정리 (자동으로 Presence에서 제거됨)
-      if (channelRef.current) {
-        channelRef.current.untrack();
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+        );
+      } catch (err) {
+        setIsConnected(false);
+        setError(err instanceof Error ? err : new Error('Presence 연결 실패'));
       }
     };
-  }, [subscribeToPresence]);
+
+    void connect();
+
+    return () => {
+      disposed = true;
+      unsubscribePresence();
+      unsubscribeHostStatus();
+      void onDisconnect(presenceRef).cancel().catch(() => undefined);
+      void remove(presenceRef).catch(() => undefined);
+      if (role === 'host') {
+        void onDisconnect(hostStatusRef).cancel().catch(() => undefined);
+        void set(hostStatusRef, { online: false, lastSeen: serverTimestamp() }).catch(() => undefined);
+      }
+    };
+  }, [noteId, role, safeUsername, userId]);
 
   return {
-    users,
-    isConnected,
-    error,
+    users: noteId && userId ? users : [],
+    isConnected: noteId && userId ? isConnected : false,
+    error: noteId && userId ? error : null,
+    isHostOnline: noteId && userId ? isHostOnline : role === 'host',
   };
 }
