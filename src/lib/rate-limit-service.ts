@@ -94,24 +94,24 @@ export function createMemoryRateLimitStore(seed: Record<string, RateLimitRecord>
 }
 
 export function createRtdbRateLimitStore(pathPrefix = 'rateLimits'): RateLimitStore {
-  const root = getAdminRtdb().ref(pathPrefix);
+  const getRoot = () => getAdminRtdb().ref(pathPrefix);
 
   return {
     async get(key: string) {
-      const snapshot = await root.child(key).get();
+      const snapshot = await getRoot().child(key).get();
       return normalizeRecord(snapshot.val() as Partial<RateLimitRecord> | null);
     },
     async set(key: string, record: RateLimitRecord) {
-      await root.child(key).set(record);
+      await getRoot().child(key).set(record);
     },
     async remove(key: string) {
-      await root.child(key).remove();
+      await getRoot().child(key).remove();
     },
     async recordFailure(key: string, options: Required<Pick<RateLimitOptions, 'maxFailures' | 'lockDurationMs' | 'now'>>) {
       const now = options.now();
       let committedRecord: RateLimitRecord | null = null;
 
-      const result = await root.child(key).transaction((current) => {
+      const result = await getRoot().child(key).transaction((current) => {
         const nextRecord = nextFailureRecord(
           normalizeRecord(current as Partial<RateLimitRecord> | null),
           now,
