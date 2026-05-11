@@ -7,10 +7,17 @@ import {
   textToTiptapJson,
   updateNoteByCode,
 } from '@/lib/note-service-firebase';
+import {
+  buildRateLimitKey,
+  clearRateLimit,
+  createRtdbRateLimitStore,
+  getRateLimitStatus,
+  recordRateLimitFailure,
+} from '@/lib/rate-limit-service';
 
-const rateLimitMap = new Map<string, { failCount: number; lockedUntil: number }>();
 const MAX_FAILURES = 5;
 const LOCK_DURATION_MS = 10 * 60 * 1000;
+const deleteRateLimitStore = createRtdbRateLimitStore('rateLimits/delete');
 const MAX_TITLE_LENGTH = 200;
 
 function sanitizeTitle(title: string): string {
@@ -132,11 +139,16 @@ export async function DELETE(
     const body = await request.json();
     const { password } = body;
 
-    const rateLimit = rateLimitMap.get(noteCode);
-    if (rateLimit && rateLimit.lockedUntil > Date.now()) {
-      const remainingMinutes = Math.ceil((rateLimit.lockedUntil - Date.now()) / 60000);
+    const rateLimitKey = buildRateLimitKey('delete', noteCode, 'all-clients');
+    const rateLimit = await getRateLimitStatus(deleteRateLimitStore, rateLimitKey);
+    if (rateLimit.locked) {
+      const remainingMinutes = Math.ceil(rateLimit.remainingMs / 60000);
       return NextResponse.json(
-        { error: `너무 많은 시도가 있었습니다. ${remainingMinutes}분 후 다시 시도해주세요.` },
+        {
+          error: `너무 많은 시도가 있었습니다. ${remainingMinutes}분 후 다시 시도해주세요.`,
+          code: 'RATE_LIMITED',
+          retryAfterMs: rateLimit.remainingMs,
+        },
         { status: 429 }
       );
     }
@@ -151,21 +163,22 @@ export async function DELETE(
     const deleted = await deleteNoteByCode(noteCode, password);
 
     if (!deleted) {
-      const currentLimit = rateLimitMap.get(noteCode) || { failCount: 0, lockedUntil: 0 };
-      currentLimit.failCount += 1;
+      const failedLimit = await recordRateLimitFailure(deleteRateLimitStore, rateLimitKey, {
+        maxFailures: MAX_FAILURES,
+        lockDurationMs: LOCK_DURATION_MS,
+      });
 
-      if (currentLimit.failCount >= MAX_FAILURES) {
-        currentLimit.lockedUntil = Date.now() + LOCK_DURATION_MS;
-        currentLimit.failCount = 0;
-        rateLimitMap.set(noteCode, currentLimit);
-
+      if (failedLimit.locked) {
+        const remainingMinutes = Math.ceil(failedLimit.remainingMs / 60000);
         return NextResponse.json(
-          { error: '너무 많은 시도가 있었습니다. 10분 후 다시 시도해주세요.' },
+          {
+            error: `너무 많은 시도가 있었습니다. ${remainingMinutes}분 후 다시 시도해주세요.`,
+            code: 'RATE_LIMITED',
+            retryAfterMs: failedLimit.remainingMs,
+          },
           { status: 429 }
         );
       }
-
-      rateLimitMap.set(noteCode, currentLimit);
 
       return NextResponse.json(
         { error: '비밀번호가 올바르지 않습니다.' },
@@ -173,7 +186,7 @@ export async function DELETE(
       );
     }
 
-    rateLimitMap.delete(noteCode);
+    await clearRateLimit(deleteRateLimitStore, rateLimitKey);
 
     return NextResponse.json(
       { message: '노트가 삭제되었습니다.' },

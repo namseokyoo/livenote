@@ -1,4 +1,21 @@
 {
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "livenote-web",
+          "region": "asia-northeast3"
+        }
+      }
+    ]
+  },
   "database": {
     "rules": "database.rules.json"
   }
