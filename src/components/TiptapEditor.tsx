@@ -56,7 +56,7 @@ export function TiptapEditor({
       : JSON.stringify(parsedContent);
 
     if (currentContent !== nextContent) {
-      editor.commands.setContent(parsedContent);
+      editor.commands.setContent(parsedContent, { emitUpdate: false });
     }
   }, [content, editor]);
 

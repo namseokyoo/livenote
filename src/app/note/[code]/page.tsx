@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { NoteEditor } from '@/components/NoteEditor';
 import { PresenceList } from '@/components/PresenceList';
@@ -54,6 +54,7 @@ export default function NotePage() {
   // Save state (로컬 저장 상태 - Realtime 훅 사용 시 fallback)
   const [localIsSaving, setLocalIsSaving] = useState(false);
   const [localLastSaved, setLocalLastSaved] = useState<Date | null>(null);
+  const contentJsonSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Delete modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -263,6 +264,14 @@ export default function NotePage() {
     }
   }, [isAuthenticated, fetchNote]);
 
+  useEffect(() => {
+    return () => {
+      if (contentJsonSaveTimerRef.current) {
+        clearTimeout(contentJsonSaveTimerRef.current);
+      }
+    };
+  }, []);
+
   // Handle authentication
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -308,7 +317,7 @@ export default function NotePage() {
 
   // Handle content JSON change (Tiptap 에디터용 - 호스트 또는 편집 권한 있는 게스트)
   const handleContentJsonChange = useCallback(
-    async (newContentJson: TiptapContent) => {
+    (newContentJson: TiptapContent) => {
       const canEditContent = userRole === 'host' || guestCanEdit;
       if (!canEditContent) return;
 
@@ -319,8 +328,35 @@ export default function NotePage() {
       });
 
       setRealtimeContentJson(newContentJson);
+
+      if (contentJsonSaveTimerRef.current) {
+        clearTimeout(contentJsonSaveTimerRef.current);
+      }
+
+      contentJsonSaveTimerRef.current = setTimeout(() => {
+        setLocalIsSaving(true);
+        void fetch(`/api/notes/${noteCode}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content_json: newContentJson, userId }),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error('노트 저장에 실패했습니다.');
+            }
+            setLocalLastSaved(new Date());
+          })
+          .catch(() => {
+            // Realtime 저장 흐름을 유지하되, 서버 canonical 저장 실패는 UI에서 조용히 무시
+          })
+          .finally(() => {
+            setLocalIsSaving(false);
+          });
+      }, 500);
     },
-    [guestCanEdit, setRealtimeContentJson, userRole]
+    [guestCanEdit, noteCode, setRealtimeContentJson, userId, userRole]
   );
 
   // Handle content change (plain text - 하위 호환용)

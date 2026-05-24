@@ -166,9 +166,10 @@ test.describe('S1: 기본 플로우', () => {
 
     const content = await page.locator('.ProseMirror, [contenteditable="true"]').first().textContent();
     console.log('[S1-05] 새로고침 후 에디터 내용:', content?.slice(0, 100));
-    // 내용이 유지되면 PASS (Firebase RTDB 저장 확인)
+    // 내용이 유지되어야 PASS (Firebase RTDB 저장 확인)
     const persisted = content?.includes(uniqueText) ?? false;
-    console.log('[S1-05] 내용 유지:', persisted ? 'PASS' : 'WARNING - 재인증 세션 차이 가능');
+    console.log('[S1-05] 내용 유지:', persisted ? 'PASS' : 'FAIL');
+    expect(persisted).toBe(true);
   });
 });
 
