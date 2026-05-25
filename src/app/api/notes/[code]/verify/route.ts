@@ -84,6 +84,7 @@ export async function POST(
         code: result.note.note_code,
         title: result.note.title,
         content: result.note.content,
+        visibility: result.note.visibility,
         is_locked: result.note.is_locked,
         created_at: result.note.created_at,
         last_modified: result.note.last_modified,

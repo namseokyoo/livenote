@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { NoteVisibility } from '@/types/note';
 import { createNoteWithPasswords, getErrorStatus, listNotes } from '@/lib/note-service-firebase';
 
 const MAX_TITLE_LENGTH = 200;
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { title, hostPassword, guestPassword } = body;
+    const visibility: NoteVisibility = body.visibility === 'unlisted' ? 'unlisted' : 'public';
 
     if (!title || typeof title !== 'string' || !title.trim()) {
       return NextResponse.json(
@@ -77,10 +79,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const note = await createNoteWithPasswords(sanitizedTitle, hostPassword, guestPassword);
+    const note = await createNoteWithPasswords(sanitizedTitle, hostPassword, guestPassword, visibility);
 
     return NextResponse.json({
       code: note.note_code,
+      visibility: note.visibility,
       participantId: note.participantId,
       userId: note.participantId,
       note: {
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest) {
         note_code: note.note_code,
         title: note.title,
         content: note.content,
+        visibility: note.visibility,
         is_locked: note.is_locked,
         created_at: note.created_at,
         last_modified: note.last_modified,

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { TiptapEditor } from './TiptapEditor';
-import type { TiptapContent } from '@/types/note';
+import type { NoteVisibility, TiptapContent } from '@/types/note';
 
 interface NoteEditorProps {
   noteCode: string;
@@ -22,6 +22,7 @@ interface NoteEditorProps {
   isSaving?: boolean;
   isConnected?: boolean;
   noteId?: string;
+  visibility?: NoteVisibility;
 }
 
 export function NoteEditor({
@@ -38,6 +39,7 @@ export function NoteEditor({
   isSaving = false,
   isConnected = true,
   noteId,
+  visibility = 'public',
 }: NoteEditorProps) {
   void _content;
   void _onContentChange;
@@ -45,6 +47,10 @@ export function NoteEditor({
   // 편집 가능 여부: 호스트이거나, 게스트에게 편집 권한이 부여된 경우
   const canEdit = isHost || guestCanEdit;
   const editorKey = noteId ? `note-${noteId}` : 'editor';
+  const visibilityLabel = visibility === 'unlisted' ? '링크 전용' : '공개';
+  const visibilityGuidance = visibility === 'unlisted'
+    ? '이 노트는 목록과 검색에 표시되지 않습니다. 참여자는 코드나 링크와 비밀번호가 필요합니다.'
+    : '이 노트는 최근 목록과 검색에 표시될 수 있습니다. 참여자는 코드나 링크와 비밀번호가 필요합니다.';
   const [localTitle, setLocalTitle] = useState(title);
   // Tiptap 에디터용 JSON 콘텐츠 상태
   const [localContentJson, setLocalContentJson] = useState<string>(
@@ -172,23 +178,36 @@ export function NoteEditor({
       </div>
 
       {/* Note code display */}
-      <div className="flex items-center gap-2 py-3">
-        <span className="text-xs text-gray-500">코드:</span>
-        <code className="text-sm font-mono bg-gray-100 px-2 py-0.5 rounded">
-          {noteCode}
-        </code>
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(noteCode);
-          }}
-          className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
-        >
-          복사
-        </button>
+      <div className="flex flex-col gap-1 py-3 border-b border-gray-100">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500">코드:</span>
+          <code className="text-sm font-mono bg-gray-100 px-2 py-0.5 rounded">
+            {noteCode}
+          </code>
+          <span className="text-xs text-gray-500">{visibilityLabel}</span>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(noteCode);
+            }}
+            className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
+          >
+            코드 복사
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">{visibilityGuidance}</p>
       </div>
 
       {/* Tiptap WYSIWYG Editor */}
       <div className="flex-1 pt-4">
+        {!canEdit && (
+          <div
+            className="mb-3 animate-pulse rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            role="status"
+          >
+            읽기 전용 게스트 모드입니다. 내용을 보려면 그대로 이용하고, 편집하려면 호스트에게 권한을 요청하세요.
+          </div>
+        )}
         <TiptapEditor
           key={editorKey}
           content={localContentJson}

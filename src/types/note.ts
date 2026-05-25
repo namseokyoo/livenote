@@ -23,6 +23,8 @@ export interface TiptapMark {
   attrs?: Record<string, unknown>;
 }
 
+export type NoteVisibility = 'public' | 'unlisted';
+
 /**
  * 노트 엔티티
  *
@@ -42,6 +44,7 @@ export interface Note {
   host_password: string;
   /** @deprecated 보안 패치 이후 항상 빈 문자열 */
   guest_password: string;
+  visibility: NoteVisibility;
   is_locked: boolean;
   locked_by: string | null;
   created_at: string;
@@ -83,6 +86,7 @@ export interface CreateNoteInput {
   title: string;
   hostPassword: string;
   guestPassword: string;
+  visibility?: NoteVisibility;
 }
 
 /**

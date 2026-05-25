@@ -12,7 +12,7 @@ import { useEditPermission } from '@/hooks/useEditPermission';
 import { usePresence } from '@/hooks/usePresence';
 import { useRealtimeNote } from '@/hooks/useRealtimeNote';
 
-import type { TiptapContent } from '@/types/note';
+import type { NoteVisibility, TiptapContent } from '@/types/note';
 
 // 인증 만료 시간 (3분 = 180,000ms)
 const AUTH_EXPIRY_MS = 3 * 60 * 1000;
@@ -23,6 +23,7 @@ interface Note {
   title: string;
   content: string;
   content_json?: TiptapContent | null;
+  visibility?: NoteVisibility;
 }
 
 export default function NotePage() {
@@ -275,6 +276,8 @@ export default function NotePage() {
   // Handle authentication
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthLoading) return;
+
     setAuthError(null);
     setIsAuthLoading(true);
 
@@ -296,16 +299,18 @@ export default function NotePage() {
       }
 
       const data = await response.json();
+      const authNickname = nickname.trim() || (data.role === 'host' ? '호스트' : '게스트');
 
       // Store auth with timestamp
       sessionStorage.setItem(`note-${noteCode}-role`, data.role);
       sessionStorage.setItem(`note-${noteCode}-auth`, 'true');
-      sessionStorage.setItem(`note-${noteCode}-nickname`, nickname.trim());
+      sessionStorage.setItem(`note-${noteCode}-nickname`, authNickname);
       sessionStorage.setItem(`note-${noteCode}-timestamp`, Date.now().toString());
       sessionStorage.setItem(`note-${noteCode}-userId`, data.userId);
 
       setUserRole(data.role);
       setUserId(data.userId);
+      setNickname(authNickname);
       setIsAuthenticated(true);
       setShowAuthModal(false);
     } catch (err) {
@@ -525,6 +530,7 @@ export default function NotePage() {
                 }}
                 inputMode="numeric"
                 maxLength={4}
+                disabled={isAuthLoading}
                 required
               />
 
@@ -534,6 +540,7 @@ export default function NotePage() {
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 maxLength={20}
+                disabled={isAuthLoading}
                 required
               />
 
@@ -548,6 +555,7 @@ export default function NotePage() {
                   type="button"
                   variant="secondary"
                   onClick={() => router.push('/')}
+                  disabled={isAuthLoading}
                   className="flex-1"
                 >
                   취소
@@ -558,7 +566,7 @@ export default function NotePage() {
                   isLoading={isAuthLoading}
                   className="flex-1"
                 >
-                  참여하기
+                  {isAuthLoading ? '확인 중...' : '참여하기'}
                 </Button>
               </div>
             </form>
@@ -635,6 +643,7 @@ export default function NotePage() {
                 isSaving={isSaving}
                 isConnected={isRealtimeConnected}
                 noteId={note.id}
+                visibility={note.visibility}
               />
             )}
           </div>

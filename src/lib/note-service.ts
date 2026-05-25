@@ -1,5 +1,5 @@
 import { get, ref, remove, set, update } from 'firebase/database';
-import type { Note, NoteUser, PasswordVerifyResult, PermissionStatus, TiptapContent, UserRole } from '@/types/note';
+import type { Note, NoteUser, NoteVisibility, PasswordVerifyResult, PermissionStatus, TiptapContent, UserRole } from '@/types/note';
 import { getRtdb, signInAnonymouslyIfNeeded } from './firebase';
 
 export interface NoteListItem {
@@ -24,6 +24,7 @@ type NoteRecord = {
   lockedBy: string | null;
   createdAt: number | string;
   lastModified: number | string;
+  visibility?: NoteVisibility;
   content?: string;
   contentJson?: TiptapContent | null;
   updatedAt?: number | string;
@@ -90,6 +91,10 @@ function getPermissionStatus(role: UserRole, value: unknown): PermissionStatus {
   return role === 'host' ? 'granted' : 'none';
 }
 
+function normalizeNoteVisibility(value: unknown): NoteVisibility {
+  return value === 'unlisted' ? 'unlisted' : 'public';
+}
+
 function mapNote(noteId: string, noteData: Partial<NoteRecord> | null | undefined): Note {
   const contentJson = (noteData?.contentJson as TiptapContent | null | undefined) ?? null;
   const content = typeof noteData?.content === 'string'
@@ -104,6 +109,7 @@ function mapNote(noteId: string, noteData: Partial<NoteRecord> | null | undefine
     content_json: contentJson,
     host_password: '',
     guest_password: '',
+    visibility: normalizeNoteVisibility(noteData?.visibility),
     is_locked: Boolean(noteData?.isLocked),
     locked_by: typeof noteData?.lockedBy === 'string' ? noteData.lockedBy : null,
     created_at: toIsoString(noteData?.createdAt),

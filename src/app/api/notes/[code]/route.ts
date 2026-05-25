@@ -51,6 +51,7 @@ export async function GET(
       title: note.title,
       content: note.content,
       content_json: note.content_json || textToTiptapJson(note.content),
+      visibility: note.visibility,
       is_locked: note.is_locked,
       created_at: note.created_at,
       last_modified: note.last_modified,
@@ -117,6 +118,7 @@ export async function PATCH(
       title: updatedNote.title,
       content: updatedNote.content,
       content_json: updatedNote.content_json || textToTiptapJson(updatedNote.content),
+      visibility: updatedNote.visibility,
       is_locked: updatedNote.is_locked,
       last_modified: updatedNote.last_modified,
     });

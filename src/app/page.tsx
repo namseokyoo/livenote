@@ -28,7 +28,9 @@ export default function Home() {
         {/* Logo and title */}
         <div className="text-center mb-12">
           <h1 className="text-3xl font-bold text-black mb-2">LiveNote</h1>
-          <p className="text-gray-500">실시간 공유 노트</p>
+          <p className="text-gray-500">
+            링크로 다시 열고 함께 실시간으로 읽고 쓰는 공유 노트
+          </p>
         </div>
 
         {/* Main content */}
@@ -78,7 +80,7 @@ export default function Home() {
 
         {/* Footer info */}
         <div className="mt-12 text-center text-sm text-gray-400">
-          <p>호스트: 편집 가능 | 게스트: 읽기 전용</p>
+          <p>호스트는 편집 가능, 게스트는 기본 읽기 전용입니다.</p>
         </div>
       </main>
     </div>

@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import type { Note, NoteUser, PermissionStatus, TiptapContent, UserRole } from '@/types/note';
+import type { Note, NoteUser, NoteVisibility, PermissionStatus, TiptapContent, UserRole } from '@/types/note';
 import { getAdminRtdb } from './firebase-admin';
 
 const PEPPER = process.env.PASSWORD_PEPPER || '';
@@ -36,6 +36,7 @@ type NoteRecord = {
   lockedBy: string | null;
   createdAt: number | string;
   lastModified: number | string;
+  visibility?: NoteVisibility;
   content?: string;
   contentJson?: TiptapContent | null;
   updatedAt?: number | string;
@@ -123,6 +124,10 @@ function getPermissionStatus(role: UserRole, value: unknown): PermissionStatus {
   return role === 'host' ? 'granted' : 'none';
 }
 
+export function normalizeNoteVisibility(value: unknown): NoteVisibility {
+  return value === 'unlisted' ? 'unlisted' : 'public';
+}
+
 function compareNoteListItems(left: NoteListItem, right: NoteListItem): number {
   const byLastModified = toTimestampMs(right.last_modified) - toTimestampMs(left.last_modified);
 
@@ -157,6 +162,7 @@ export function mapAdminNote(noteId: string, noteData: Partial<NoteRecord> | nul
     content_json: contentJson,
     host_password: '',
     guest_password: '',
+    visibility: normalizeNoteVisibility(noteData?.visibility),
     is_locked: Boolean(noteData?.isLocked),
     locked_by: typeof noteData?.lockedBy === 'string' ? noteData.lockedBy : null,
     created_at: toIsoString(noteData?.createdAt),
@@ -274,7 +280,8 @@ export async function getAdminNoteByCode(noteCode: string): Promise<Note | null>
 export async function createNoteWithPasswords(
   title: string,
   hostPassword: string,
-  guestPassword: string
+  guestPassword: string,
+  visibility: NoteVisibility = 'public'
 ): Promise<Note & { participantId: string }> {
   const rtdb = getAdminRtdb();
   const hostUid = crypto.randomUUID();
@@ -304,6 +311,7 @@ export async function createNoteWithPasswords(
           noteId,
           noteCode,
           title,
+          visibility: normalizeNoteVisibility(visibility),
           isLocked: false,
           lockedBy: null,
           createdAt: now,
@@ -384,6 +392,7 @@ export async function listNotes(
   }
 
   let items = Object.entries(data)
+    .filter(([, noteData]) => normalizeNoteVisibility(noteData?.visibility) === 'public')
     .map(([noteId, noteData]) => mapNoteListItem(noteId, noteData))
     .filter((item) => item.note_code !== '')
     .sort(compareNoteListItems);

@@ -1,0 +1,95 @@
+{
+  "task_id": "2026-05-25-livenote-access-ux",
+  "updated_at_utc": "2026-05-25T00:36:31Z",
+  "verdict": "PASS",
+  "executor_route": "Codex exec implemented the main diff; Core killed a stale Codex session after it left an orphaned next build lock, fixed the missing client note-service visibility mapping, reran gates, and verified.",
+  "external_side_effects": false,
+  "gates": [
+    {
+      "id": "G0",
+      "status": "PASS",
+      "summary": "Boundary confirmed: /Volumes/external/project/SidequestLab/projects/livenote/app on branch infra/firebase-cloud-run-migration, origin https://github.com/namseokyoo/livenote.git. No deploy/push/merge/tag/publish."
+    },
+    {
+      "id": "G1",
+      "status": "PASS",
+      "command": "npm run lint",
+      "exit_code": 0,
+      "summary": "ESLint completed with no reported errors."
+    },
+    {
+      "id": "G2",
+      "status": "PASS",
+      "command": "npm run test",
+      "exit_code": 0,
+      "summary": "Vitest: 2 files passed, 5 tests passed, including new note visibility tests."
+    },
+    {
+      "id": "G3",
+      "status": "PASS",
+      "command": "npm run build",
+      "exit_code": 0,
+      "summary": "Next.js production build compiled, typechecked, collected page data, and generated static pages successfully after removing stale .next/lock from the killed orphan build."
+    },
+    {
+      "id": "G4",
+      "status": "PASS",
+      "summary": "NoteVisibility was added as public|unlisted. Creation defaults to public unless unlisted is selected. Missing/invalid stored values normalize to public. listNotes filters public listing/search to public notes only; note-code GET/verify still returns the note by code."
+    },
+    {
+      "id": "G5",
+      "status": "PASS",
+      "summary": "Landing one-liner, create visibility/password/link-retention guidance, join feedback/link-code guidance, editor share/code guidance, and read-only guest banner are present."
+    },
+    {
+      "id": "G6",
+      "status": "PASS",
+      "command": "npm run dev -- --port 3137; browser open landing/create form; browser_console",
+      "exit_code": 0,
+      "summary": "Landing and create-form browser smoke showed no console messages or JavaScript errors. Full create was not submitted to avoid mutating connected Firebase data."
+    },
+    {
+      "id": "G7",
+      "status": "PASS",
+      "command": "python3 -m json.tool .hermes/harness/2026-05-25-livenote-access-ux/evidence.json",
+      "exit_code": 0,
+      "summary": "Evidence JSON is valid."
+    },
+    {
+      "id": "G8",
+      "status": "PASS",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "summary": "No whitespace or conflict-marker issues."
+    },
+    {
+      "id": "G9",
+      "status": "PASS",
+      "summary": "No external side effects were performed. A local dev server was started for smoke and should be stopped after review."
+    }
+  ],
+  "changed_paths": [
+    "docs/plans/2026-05-25-livenote-access-ux-goal-plan.md",
+    "src/types/note.ts",
+    "src/lib/note-service-firebase.ts",
+    "src/lib/note-service.ts",
+    "src/app/api/notes/route.ts",
+    "src/app/api/notes/[code]/route.ts",
+    "src/app/api/notes/[code]/verify/route.ts",
+    "src/app/note/[code]/page.tsx",
+    "src/app/page.tsx",
+    "src/components/CreateNoteForm.tsx",
+    "src/components/JoinNoteForm.tsx",
+    "src/components/NoteEditor.tsx",
+    "tests/note-visibility.test.ts",
+    ".hermes/harness/2026-05-25-livenote-access-ux/spec.md",
+    ".hermes/harness/2026-05-25-livenote-access-ux/checklist.md",
+    ".hermes/harness/2026-05-25-livenote-access-ux/implementation-map.md",
+    ".hermes/harness/2026-05-25-livenote-access-ux/evidence.json",
+    ".hermes/harness/2026-05-25-livenote-access-ux/final-report.md"
+  ],
+  "residual_risks": [
+    "No full create/join submission smoke was performed because the local app is connected to Firebase data; browser console smoke covered landing/create UI only.",
+    "Existing historical notes with missing visibility are treated as public for backward compatibility."
+  ]
+}

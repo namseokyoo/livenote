@@ -20,6 +20,8 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
+
     setError(null);
 
     // Validation
@@ -54,7 +56,7 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || '인증에 실패했습니다.');
+        throw new Error(data.error || '코드 또는 비밀번호를 확인해주세요.');
       }
 
       const data = await response.json();
@@ -85,8 +87,12 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
           setNoteCode(value);
         }}
         maxLength={6}
+        disabled={isLoading}
         required
       />
+      <p className="-mt-2 text-xs text-gray-500">
+        링크 전용 노트는 최근 목록이나 검색에 나오지 않으므로 공유받은 코드 또는 링크가 필요합니다.
+      </p>
 
       <Input
         label="비밀번호"
@@ -99,6 +105,7 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
         }}
         inputMode="numeric"
         maxLength={4}
+        disabled={isLoading}
         required
       />
 
@@ -108,6 +115,7 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
         value={nickname}
         onChange={(e) => setNickname(e.target.value)}
         maxLength={20}
+        disabled={isLoading}
         required
       />
 
@@ -123,6 +131,7 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
             type="button"
             variant="secondary"
             onClick={onCancel}
+            disabled={isLoading}
             className="flex-1"
           >
             취소
@@ -134,7 +143,7 @@ export function JoinNoteForm({ onCancel }: JoinNoteFormProps) {
           isLoading={isLoading}
           className="flex-1"
         >
-          참여하기
+          {isLoading ? '확인 중...' : '참여하기'}
         </Button>
       </div>
     </form>
